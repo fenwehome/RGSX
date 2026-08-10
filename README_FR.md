@@ -231,7 +231,7 @@ RGSX inclut une interface web qui se lance automatiquement quand vous utilisez R
 | Problème | Solution |
 |----------|----------|
 | Les contrôles ne fonctionnent pas | Supprimez `/saves/ports/rgsx/controls.json` puis redémarrez, vous pouvez aussi supprimer `/roms/ports/RGSX/assets/controls/xx.json` |
-| Aucun jeu ? | Menu Pause > Jeux > Mettre à jour le cache des jeux, puis vérifier Menu Pause > Jeux > Filtrer les plateformes et Afficher les plateformes non supportées |
+| Aucun jeu ? | Menu Pause > Jeux > Mettre à jour le cache des jeux, puis vérifier Menu Pause > Jeux > Filtrer les plateformes et Afficher les plateformes non supportées. Verifie dans le fichier `rgsx_settings.json` dans `/saves/ports/rgsx/` si la valeur de `sources: mode`:  est bien `rgsx` et pas `custom` |
 | Des systèmes manquent dans la liste ? | RGSX lit `es_systems.cfg` pour afficher uniquement les systèmes supportés. Si vous voulez tous les systèmes : Menu Pause > Jeux > Afficher les plateformes non supportées |
 | L'application crash | Vérifiez `/roms/ports/RGSX/logs/RGSX.log` ou `/roms/windows/logs/Retrobat_RGSX_log.txt` |
 | Changement de layout non appliqué | Redémarrez RGSX après modification du layout |
