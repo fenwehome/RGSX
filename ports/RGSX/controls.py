@@ -118,6 +118,37 @@ def _apply_sorted_active_filters() -> list[Game]:
     return config.games
 
 
+def _get_advanced_filter_region_columns() -> int:
+    """Retourne le nombre de colonnes réellement affichables dans le filtre avancé."""
+    available_grid_width = max(180, getattr(config, 'screen_width', 0) - 40)
+    item_spacing_x = 20
+
+    if not getattr(config, 'font', None):
+        return 2 if getattr(config, 'screen_width', 0) <= 720 else 3
+
+    include_label = _("filter_region_include") if _ else "Include"
+    exclude_label = _("filter_region_exclude") if _ else "Exclude"
+    max_region_width = 0
+
+    try:
+        from game_filters import GameFilters
+
+        for region in GameFilters.REGIONS:
+            region_key = f"filter_region_{region.lower()}"
+            region_label = _(region_key) if _ else region
+            include_text = f"{region_label}: [V] {include_label}"
+            exclude_text = f"{region_label}: [X] {exclude_label}"
+            max_region_width = max(
+                max_region_width,
+                config.font.render(include_text, True, (255, 255, 255)).get_width() + 30,
+                config.font.render(exclude_text, True, (255, 255, 255)).get_width() + 30,
+            )
+    except Exception:
+        max_region_width = 220
+
+    return min(3, max(1, (available_grid_width + item_spacing_x) // max(1, max_region_width + item_spacing_x)))
+
+
 _platform_torrent_support_cache: dict[str, bool] = {}
 
 
@@ -839,21 +870,62 @@ def filter_games_by_search_query() -> list[Game]:
     base_games = config.games
     if config.game_filter_obj and config.game_filter_obj.is_active():
         base_games = config.game_filter_obj.apply_filters(config.games)
- 
+
     filtered_games = []
+    query = _normalize_search_text(config.search_query)
     for game in base_games:
-        game_name = game.display_name 
-        if config.search_query.lower() in game_name.lower():
+        game_name = game.display_name
+        if _search_text_matches(query, game_name):
             filtered_games.append(game)
 
     return _sort_local_games(filtered_games)
+
+
+SEARCH_TEXT_EXTRA_CHARS = {'.', '_', '-', ','}
+
+
+def _normalize_search_text(text: str | None) -> str:
+    value = str(text or "").lower()
+    value = re.sub(r"[._\-]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip()
+    return value
+
+
+def _compact_search_text(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _normalize_search_text(text))
+
+
+def _search_text_matches(normalized_query: str, candidate_text: str | None) -> bool:
+    if not normalized_query:
+        return True
+
+    normalized_candidate = _normalize_search_text(candidate_text)
+    if normalized_query in normalized_candidate:
+        return True
+
+    compact_query = _compact_search_text(normalized_query)
+    compact_candidate = _compact_search_text(candidate_text)
+    return bool(compact_query) and compact_query in compact_candidate
+
+
+def _get_search_input_char(event) -> str | None:
+    if event.type != pygame.KEYDOWN:
+        return None
+
+    char = getattr(event, 'unicode', '') or ''
+    if len(char) != 1:
+        return None
+
+    if char.isalnum() or char == ' ' or char in SEARCH_TEXT_EXTRA_CHARS:
+        return char
+    return None
 
 
 GLOBAL_SEARCH_KEYBOARD_LAYOUT = [
     ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
     ['A', 'Z', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['Q', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'M'],
-    ['W', 'X', 'C', 'V', 'B', 'N']
+    ['W', 'X', 'C', 'V', 'B', 'N', '.', '_', '-', ',']
 ]
 
 
@@ -900,7 +972,7 @@ def build_global_search_index() -> list[dict]:
                 "platform_index": platform_index,
                 "game_name": game.name,
                 "display_name": display_name,
-                "search_name": display_name.lower(),
+                "search_name": _normalize_search_text(display_name),
                 "url": game.url,
                 "size": game.size,
                 "size_bytes": parse_game_size_to_bytes(game.size),
@@ -966,7 +1038,7 @@ def _load_embedded_global_search_index() -> list[dict] | None:
             'platform_index': platform_order[platform_id],
             'game_name': game_name,
             'display_name': display_name,
-            'search_name': display_name.lower(),
+            'search_name': _normalize_search_text(display_name),
             'url': url,
             'size': size,
             'size_bytes': size_bytes,
@@ -1014,7 +1086,7 @@ def _ensure_global_search_index(operation_title: str | None = None) -> None:
 
 
 def refresh_global_search_results(reset_selection: bool = True) -> None:
-    query = (config.global_search_query or "").strip().lower()
+    query = _normalize_search_text(config.global_search_query)
     items = list(getattr(config, 'global_search_index', []) or [])
 
     filter_obj = getattr(config, 'game_filter_obj', None)
@@ -1026,7 +1098,7 @@ def refresh_global_search_results(reset_selection: bool = True) -> None:
     if query:
         items = [
             item for item in items
-            if query in item.get("search_name", item["display_name"].lower())
+            if _search_text_matches(query, item.get("search_name") or item.get("display_name", ""))
         ]
     elif not getattr(config, 'global_search_allow_empty', False):
         items = []
@@ -1048,7 +1120,7 @@ def enter_global_search() -> None:
     config.global_search_results = []
     config.global_search_selected = 0
     config.global_search_scroll_offset = 0
-    config.global_search_editing = bool(getattr(config, 'joystick', False))
+    config.global_search_editing = True
     config.global_search_allow_empty = False
     config.global_search_title_override = _("global_search_title").format("").replace(" : ", "").rstrip(': ') if _ else 'Recherche globale'
     config.selected_key = (0, 0)
@@ -1372,30 +1444,32 @@ def handle_controls(event, sources, joystick, screen):
                 config.needs_redraw = True
 
         elif config.menu_state == "platform_search":
-            if getattr(config, 'joystick', False) and getattr(config, 'global_search_editing', False):
+            direct_input_char = _get_search_input_char(event)
+            if direct_input_char is not None and getattr(config, 'global_search_editing', False):
+                config.global_search_query += direct_input_char
+                refresh_global_search_results()
+                logger.debug(f"Recherche globale clavier: query={config.global_search_query}, resultats={len(config.global_search_results)}")
+                config.needs_redraw = True
+            elif getattr(config, 'joystick', False) and getattr(config, 'global_search_editing', False):
                 row, col = config.selected_key
                 max_row = len(GLOBAL_SEARCH_KEYBOARD_LAYOUT) - 1
                 max_col = len(GLOBAL_SEARCH_KEYBOARD_LAYOUT[row]) - 1
                 if is_global_search_input_matched(event, "up"):
-                    if row == 0:
-                        row = max_row + (1 if col <= 5 else 0)
-                    if row > 0:
-                        config.selected_key = (row - 1, min(col, len(GLOBAL_SEARCH_KEYBOARD_LAYOUT[row - 1]) - 1))
-                        config.repeat_action = "up"
-                        config.repeat_start_time = current_time + REPEAT_DELAY
-                        config.repeat_last_action = current_time
-                        config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
-                        config.needs_redraw = True
+                    target_row = max_row if row == 0 else row - 1
+                    config.selected_key = (target_row, min(col, len(GLOBAL_SEARCH_KEYBOARD_LAYOUT[target_row]) - 1))
+                    config.repeat_action = "up"
+                    config.repeat_start_time = current_time + REPEAT_DELAY
+                    config.repeat_last_action = current_time
+                    config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
+                    config.needs_redraw = True
                 elif is_global_search_input_matched(event, "down"):
-                    if (col <= 5 and row == max_row) or (col > 5 and row == max_row - 1):
-                        row = -1
-                    if row < max_row:
-                        config.selected_key = (row + 1, min(col, len(GLOBAL_SEARCH_KEYBOARD_LAYOUT[row + 1]) - 1))
-                        config.repeat_action = "down"
-                        config.repeat_start_time = current_time + REPEAT_DELAY
-                        config.repeat_last_action = current_time
-                        config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
-                        config.needs_redraw = True
+                    target_row = 0 if row == max_row else row + 1
+                    config.selected_key = (target_row, min(col, len(GLOBAL_SEARCH_KEYBOARD_LAYOUT[target_row]) - 1))
+                    config.repeat_action = "down"
+                    config.repeat_start_time = current_time + REPEAT_DELAY
+                    config.repeat_last_action = current_time
+                    config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
+                    config.needs_redraw = True
                 elif is_global_search_input_matched(event, "left"):
                     if col == 0:
                         col = max_col + 1
@@ -1437,6 +1511,18 @@ def handle_controls(event, sources, joystick, screen):
                     config.needs_redraw = True
                 elif is_global_search_input_matched(event, "cancel"):
                     exit_global_search()
+            elif not getattr(config, 'joystick', False) and getattr(config, 'global_search_editing', False):
+                if is_global_search_input_matched(event, "confirm"):
+                    config.global_search_editing = False
+                    config.needs_redraw = True
+                elif is_global_search_input_matched(event, "delete"):
+                    if config.global_search_query:
+                        config.global_search_query = config.global_search_query[:-1]
+                        refresh_global_search_results()
+                        logger.debug(f"Recherche globale clavier suppression: query={config.global_search_query}, resultats={len(config.global_search_results)}")
+                        config.needs_redraw = True
+                elif is_global_search_input_matched(event, "cancel"):
+                    exit_global_search()
             else:
                 results = config.global_search_results
                 if is_global_search_input_matched(event, "up"):
@@ -1459,18 +1545,13 @@ def handle_controls(event, sources, joystick, screen):
                     trigger_global_search_download(queue_only=False)
                 elif is_global_search_input_matched(event, "clear_history"):
                     trigger_global_search_download(queue_only=True)
-                elif is_global_search_input_matched(event, "filter") and getattr(config, 'joystick', False):
+                elif is_global_search_input_matched(event, "filter"):
                     config.global_search_editing = True
                     config.needs_redraw = True
                 elif is_global_search_input_matched(event, "cancel"):
                     exit_global_search()
                 elif not getattr(config, 'joystick', False) and event.type == pygame.KEYDOWN:
-                    if event.unicode.isalnum() or event.unicode == ' ':
-                        config.global_search_query += event.unicode
-                        refresh_global_search_results()
-                        logger.debug(f"Recherche globale clavier: query={config.global_search_query}, resultats={len(config.global_search_results)}")
-                        config.needs_redraw = True
-                    elif is_global_search_input_matched(event, "delete"):
+                    if is_global_search_input_matched(event, "delete"):
                         if config.global_search_query:
                             config.global_search_query = config.global_search_query[:-1]
                             refresh_global_search_results()
@@ -1486,35 +1567,36 @@ def handle_controls(event, sources, joystick, screen):
         elif config.menu_state == "game":
             games: list[Game] = config.filtered_games if config.filter_active or config.search_mode else config.games
             if config.search_mode and getattr(config, 'joystick', False):
-                keyboard_layout = [
-                    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
-                    ['A', 'Z', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-                    ['Q', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'M'],
-                    ['W', 'X', 'C', 'V', 'B', 'N']
-                ]
+                direct_input_char = _get_search_input_char(event)
+                if direct_input_char is not None:
+                    config.search_query += direct_input_char
+                    config.filtered_games = filter_games_by_search_query()
+                    config.current_game = 0
+                    config.scroll_offset = 0
+                    config.search_mode = True
+                    config.needs_redraw = True
+                keyboard_layout = GLOBAL_SEARCH_KEYBOARD_LAYOUT
                 row, col = config.selected_key
                 max_row = len(keyboard_layout) - 1
                 max_col = len(keyboard_layout[row]) - 1
-                if is_input_matched(event, "up"):
-                    if row == 0: # if you are in the first row and press UP jump to last row
-                        row = max_row + (1 if col <= 5 else 0)
-                    if row > 0:
-                        config.selected_key = (row - 1, min(col, len(keyboard_layout[row - 1]) - 1))
-                        config.repeat_action = "up"
-                        config.repeat_start_time = current_time + REPEAT_DELAY
-                        config.repeat_last_action = current_time
-                        config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
-                        config.needs_redraw = True
+                if direct_input_char is not None:
+                    pass
+                elif is_input_matched(event, "up"):
+                    target_row = max_row if row == 0 else row - 1
+                    config.selected_key = (target_row, min(col, len(keyboard_layout[target_row]) - 1))
+                    config.repeat_action = "up"
+                    config.repeat_start_time = current_time + REPEAT_DELAY
+                    config.repeat_last_action = current_time
+                    config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
+                    config.needs_redraw = True
                 elif is_input_matched(event, "down"):
-                    if (col <= 5 and row == max_row) or (col > 5 and row == max_row-1): # if you are in the last row and press DOWN jump to first row
-                        row = -1
-                    if row < max_row:
-                        config.selected_key = (row + 1, min(col, len(keyboard_layout[row + 1]) - 1))
-                        config.repeat_action = "down"
-                        config.repeat_start_time = current_time + REPEAT_DELAY
-                        config.repeat_last_action = current_time
-                        config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
-                        config.needs_redraw = True
+                    target_row = 0 if row == max_row else row + 1
+                    config.selected_key = (target_row, min(col, len(keyboard_layout[target_row]) - 1))
+                    config.repeat_action = "down"
+                    config.repeat_start_time = current_time + REPEAT_DELAY
+                    config.repeat_last_action = current_time
+                    config.repeat_key = event.key if event.type == pygame.KEYDOWN else event.button if event.type == pygame.JOYBUTTONDOWN else (event.axis, 1 if event.value > 0 else -1) if event.type == pygame.JOYAXISMOTION else event.value
+                    config.needs_redraw = True
                 elif is_input_matched(event, "left"):
                     if col == 0: # if you are in the first col and press LEFT jump to last col
                         col = max_col + 1
@@ -1605,8 +1687,9 @@ def handle_controls(event, sources, joystick, screen):
                     logger.debug("Sortie du mode recherche avec bouton cancel sur PC")
                 elif event.type == pygame.KEYDOWN:
                     # Saisie de texte alphanumérique
-                    if event.unicode.isalnum() or event.unicode == ' ':
-                        config.search_query += event.unicode
+                    direct_input_char = _get_search_input_char(event)
+                    if direct_input_char is not None:
+                        config.search_query += direct_input_char
                         # Appliquer d'abord les filtres avancés si actifs, puis le filtre par nom
                         config.filtered_games = filter_games_by_search_query()
                         config.current_game = 0
@@ -3938,6 +4021,7 @@ def handle_controls(event, sources, joystick, screen):
                     config.previous_menu_state = 'filter_menu_choice'
                     config.menu_state = "filter_advanced"
                     config.selected_filter_option = 0
+                    config.filter_advanced_scroll_offset = 0
                     config.needs_redraw = True
                     logger.debug("Entrée en filtrage avancé global")
                 elif selected_key == 'global_sort':
@@ -4007,6 +4091,7 @@ def handle_controls(event, sources, joystick, screen):
             # Construire la liste linéaire des éléments sélectionnables (pour simplifier l'indexation)
             # Régions individuelles
             num_regions = len(GameFilters.REGIONS)
+            region_cols = _get_advanced_filter_region_columns()
             # Options toggle/button
             num_other_options = 3  # hide_non_release, one_rom_per_game, priority_config
             # Boutons en bas
@@ -4017,10 +4102,10 @@ def handle_controls(event, sources, joystick, screen):
             if is_input_matched(event, "up"):
                 # Navigation verticale dans la grille ou entre sections
                 if config.selected_filter_option < num_regions:
-                    # Dans la grille des régions (3 colonnes)
-                    if config.selected_filter_option >= 3:
+                    # Dans la grille des régions
+                    if config.selected_filter_option >= region_cols:
                         # Monter d'une ligne
-                        config.selected_filter_option -= 3
+                        config.selected_filter_option -= region_cols
                     else:
                         # Déjà en haut, aller aux boutons
                         config.selected_filter_option = total_items - 2  # Bouton du milieu (reset)
@@ -4038,9 +4123,9 @@ def handle_controls(event, sources, joystick, screen):
                 # Navigation verticale
                 if config.selected_filter_option < num_regions:
                     # Dans la grille des régions
-                    if config.selected_filter_option + 3 < num_regions:
+                    if config.selected_filter_option + region_cols < num_regions:
                         # Descendre d'une ligne
-                        config.selected_filter_option += 3
+                        config.selected_filter_option += region_cols
                     else:
                         # Aller aux autres options
                         config.selected_filter_option = num_regions
@@ -4058,7 +4143,7 @@ def handle_controls(event, sources, joystick, screen):
                 # Navigation horizontale
                 if config.selected_filter_option < num_regions:
                     # Dans la grille des régions
-                    if config.selected_filter_option % 3 > 0:
+                    if config.selected_filter_option % region_cols > 0:
                         config.selected_filter_option -= 1
                     config.needs_redraw = True
                 elif config.selected_filter_option >= num_regions + num_other_options:
@@ -4072,7 +4157,8 @@ def handle_controls(event, sources, joystick, screen):
                 # Navigation horizontale
                 if config.selected_filter_option < num_regions:
                     # Dans la grille des régions
-                    if config.selected_filter_option % 3 < 2 and config.selected_filter_option + 1 < num_regions:
+                    current_col = config.selected_filter_option % region_cols
+                    if current_col < region_cols - 1 and config.selected_filter_option + 1 < num_regions:
                         config.selected_filter_option += 1
                     config.needs_redraw = True
                 elif config.selected_filter_option >= num_regions + num_other_options:

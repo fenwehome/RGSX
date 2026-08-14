@@ -1627,12 +1627,11 @@ def draw_platform_grid(screen):
     row_height = available_height // num_rows
     
     # Calculer la taille du container basée sur la cellule la plus petite
-    # avec marges pour éviter les chevauchements (20% de marge)
     cell_size = min(col_width, row_height)
-    container_size = int(cell_size * 0.70)  # 70% de la cellule pour laisser de l'espace
+    container_size = int(cell_size * 0.82)
     
     # Espacement entre les cellules pour éviter les chevauchements
-    cell_padding = int(cell_size * 0.15)  # 15% d'espacement
+    cell_padding = max(8, int(cell_size * 0.08))
 
     x_positions = [margin_left + col_width * i + col_width // 2 for i in range(num_cols)]
 
@@ -1713,26 +1712,22 @@ def draw_platform_grid(screen):
         platform_id = platform_dict.get("platform_name") or platform_dict.get("platform") or display_name
         
         # Utiliser le cache d'images pour éviter de recharger/redimensionner à chaque frame
-        cache_key = f"{platform_id}_{scale:.2f}_{container_size}"
+        cache_key = f"{platform_id}_{scale:.2f}_{col_width}_{row_height}_{container_size}"
         if cache_key not in platform_images_cache:
             image = load_system_image(platform_dict)
             if image:
                 orig_width, orig_height = image.get_width(), image.get_height()
-                
-                # Taille normalisée basée sur container_size calculé en fonction de la grille
-                # Le scale affecte uniquement l'item sélectionné
-                # Adapter la largeur en fonction du nombre de colonnes pour occuper ~25-30% de l'écran
-                if num_cols == 3:
-                    # En 3 colonnes, augmenter significativement la largeur (15% de l'écran par carte)
-                    actual_container_width = int(config.screen_width * 0.15 * scale)
-                elif num_cols == 4:
-                    # En 4 colonnes, largeur plus modérée (10% de l'écran par carte)
-                    actual_container_width = int(config.screen_width * 0.15 * scale)
-                else:
-                    # Par défaut, utiliser container_size * 1.3
-                    actual_container_width = int(container_size * scale * 1.3)
-                
-                actual_container_height = int(container_size * scale)  # Hauteur normale
+                border_radius = 12
+                padding = 10 if config.screen_width <= 800 else 12
+                max_card_width = max(72, col_width - 2 * cell_padding)
+                max_card_height = max(56, row_height - 2 * cell_padding)
+                max_inner_width = max(40, max_card_width - 2 * padding)
+                max_inner_height = max(32, max_card_height - 2 * padding)
+
+                # Utiliser presque tout l'espace de la cellule, tout en gardant une marge
+                # stricte pour garantir l'absence de chevauchement.
+                actual_container_width = min(max_inner_width, int(max_inner_width * scale))
+                actual_container_height = min(max_inner_height, int(max_inner_height * scale))
                 
                 # Calculer le ratio pour fit dans le container en gardant l'aspect ratio
                 ratio = min(actual_container_width / orig_width, actual_container_height / orig_height)
@@ -1767,7 +1762,7 @@ def draw_platform_grid(screen):
 
         # Effet visuel moderne similaire au titre pour toutes les images
         border_radius = 12
-        padding = 12
+        padding = 10 if config.screen_width <= 800 else 12
         
         # Utiliser la taille du container normalisé au lieu de la taille variable de l'image
         rect_width = container_width + 2 * padding
@@ -2275,13 +2270,14 @@ def draw_global_search_list(screen):
     """Affiche la vue globale unifiée (recherche, filtre, tri)."""
     query = getattr(config, 'global_search_query', '') or ''
     results = getattr(config, 'global_search_results', []) or []
-    keyboard_active = bool(getattr(config, 'joystick', False) and getattr(config, 'global_search_editing', False))
+    editing_active = bool(getattr(config, 'global_search_editing', False))
+    keyboard_active = bool(getattr(config, 'joystick', False) and editing_active)
     allow_empty = bool(getattr(config, 'global_search_allow_empty', False))
     custom_title = (getattr(config, 'global_search_title_override', '') or '').strip()
 
     screen.blit(OVERLAY, (0, 0))
 
-    title_query = query + "_" if (getattr(config, 'joystick', False) and getattr(config, 'global_search_editing', False)) or (not getattr(config, 'joystick', False)) else query
+    title_query = query + "_" if editing_active else query
     if custom_title:
         title_text = custom_title if not title_query else f"{custom_title} : {title_query}"
     else:
@@ -2311,8 +2307,8 @@ def draw_global_search_list(screen):
         key_width = int(config.screen_width * 0.03125)
         key_height = int(config.screen_height * 0.0556)
         key_spacing = int(config.screen_width * 0.0052)
-        keyboard_layout = [10, 10, 10, 6]
-        keyboard_width = keyboard_layout[0] * (key_width + key_spacing) - key_spacing
+        keyboard_layout = [10, 10, 10, 10]
+        keyboard_width = max(keyboard_layout) * (key_width + key_spacing) - key_spacing
         keyboard_height = len(keyboard_layout) * (key_height + key_spacing) - key_spacing
         start_x = (config.screen_width - keyboard_width) // 2
         search_bottom_y = int(config.screen_height * 0.111) + (config.search_font.get_height() + 40) // 2
@@ -2948,12 +2944,12 @@ def draw_virtual_keyboard(screen):
         ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
         ['A', 'Z', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
         ['Q', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'M'],
-        ['W', 'X', 'C', 'V', 'B', 'N']
+        ['W', 'X', 'C', 'V', 'B', 'N', '.', '_', '-', ',']
     ]
     key_width = int(config.screen_width * 0.03125)
     key_height = int(config.screen_height * 0.0556)
     key_spacing = int(config.screen_width * 0.0052)
-    keyboard_width = len(keyboard_layout[0]) * (key_width + key_spacing) - key_spacing
+    keyboard_width = max(len(row) for row in keyboard_layout) * (key_width + key_spacing) - key_spacing
     keyboard_height = len(keyboard_layout) * (key_height + key_spacing) - key_spacing
     start_x = (config.screen_width - keyboard_width) // 2
     search_bottom_y = int(config.screen_height * 0.111) + (config.search_font.get_height() + 40) // 2
@@ -3663,7 +3659,31 @@ def draw_pause_menu(screen, selected_option):
     # Calculer hauteur dynamique basée sur la taille de police
     sample_text = config.font.render("Sample", True, THEME_COLORS["text"])
     font_height = sample_text.get_height()
-    button_height = max(int(config.screen_height * 0.048), font_height + 20)
+    footer_height = 70
+    top_margin = 12
+    bottom_margin = 10
+    available_height = max(0, config.screen_height - instruction_height - footer_height - top_margin - bottom_margin)
+    ideal_button_height = max(int(config.screen_height * 0.048), font_height + 20)
+    ideal_spacing = 12
+    button_height = ideal_button_height
+    button_spacing = ideal_spacing
+    margin_top_bottom = 24
+    menu_height = len(options) * button_height + max(0, len(options) - 1) * button_spacing + 2 * margin_top_bottom
+
+    if menu_height > available_height:
+        min_button_height = font_height + 10
+        min_spacing = 4
+        margin_top_bottom = 16
+        available_for_buttons = available_height - 2 * margin_top_bottom - max(0, len(options) - 1) * min_spacing
+        button_height = max(min_button_height, available_for_buttons // max(1, len(options)))
+        button_spacing = min_spacing
+        menu_height = len(options) * button_height + max(0, len(options) - 1) * button_spacing + 2 * margin_top_bottom
+
+        if menu_height > available_height:
+            button_height = min_button_height
+            remaining_height = available_height - 2 * margin_top_bottom - len(options) * button_height
+            button_spacing = max(1, remaining_height // max(1, len(options) - 1)) if len(options) > 1 else 0
+            menu_height = len(options) * button_height + max(0, len(options) - 1) * button_spacing + 2 * margin_top_bottom
     
     # Calculer largeur maximale nécessaire pour le texte
     max_text_width = 0
@@ -3674,24 +3694,20 @@ def draw_pause_menu(screen, selected_option):
     
     # Largeur du menu basée sur le texte le plus long + marges
     menu_width = min(int(config.screen_width * 0.8), max(int(config.screen_width * 0.5), max_text_width + 80))
-    margin_top_bottom = 24
-    menu_height = len(options) * (button_height + 12) + 2 * margin_top_bottom
     menu_x = (config.screen_width - menu_width) // 2
     
     # Calculer menu_y en tenant compte de l'instruction en haut
-    # Zone disponible = écran - instruction_height - footer (70px)
-    footer_height = 70
-    available_height = config.screen_height - instruction_height - footer_height
-    menu_y = instruction_height + (available_height - menu_height) // 2
+    menu_y = instruction_height + top_margin + max(0, (available_height - menu_height) // 2)
     
     pygame.draw.rect(screen, THEME_COLORS["button_idle"], (menu_x, menu_y, menu_width, menu_height), border_radius=12)
     pygame.draw.rect(screen, THEME_COLORS["border"], (menu_x, menu_y, menu_width, menu_height), 2, border_radius=12)
     for i, option in enumerate(options):
+        fitted_option = truncate_text_end(option, config.font, menu_width - 72)
         draw_stylized_button(
             screen,
-            option,
+            fitted_option,
             menu_x + 20,
-            menu_y + margin_top_bottom + i * (button_height + 12),
+            menu_y + margin_top_bottom + i * (button_height + button_spacing),
             menu_width - 40,
             button_height,
             selected=i == selected_option
@@ -3813,6 +3829,40 @@ def _draw_submenu_generic(screen, title, options, selected_index, instruction_te
     # Dessiner l'instruction en haut si présente
     if instruction_text:
         draw_menu_instruction(screen, instruction_text)
+
+
+def _calc_centered_button_menu_layout(num_options, title_bottom, font_height, bottom_reserved=70):
+    """Calcule un empilement de boutons vertical adaptatif pour les petits écrans."""
+    top_margin = 24
+    bottom_margin = 12
+    available_height = max(0, config.screen_height - title_bottom - bottom_reserved - top_margin - bottom_margin)
+
+    ideal_button_height = max(int(config.screen_height * 0.08), font_height + 24)
+    ideal_spacing = max(10, int(config.screen_height * 0.02))
+    button_height = ideal_button_height
+    button_spacing = ideal_spacing
+    total_height = num_options * button_height + max(0, num_options - 1) * button_spacing
+
+    if total_height > available_height:
+        min_button_height = font_height + 12
+        min_spacing = 6
+        available_for_buttons = available_height - max(0, num_options - 1) * min_spacing
+        button_height = max(min_button_height, available_for_buttons // max(1, num_options))
+        button_spacing = min_spacing
+        total_height = num_options * button_height + max(0, num_options - 1) * button_spacing
+
+        if total_height > available_height:
+            button_height = min_button_height
+            remaining_height = available_height - num_options * button_height
+            button_spacing = max(2, remaining_height // max(1, num_options - 1)) if num_options > 1 else 0
+            total_height = num_options * button_height + max(0, num_options - 1) * button_spacing
+
+    start_y = title_bottom + top_margin + max(0, (available_height - total_height) // 2)
+    return {
+        'button_height': button_height,
+        'button_spacing': button_spacing,
+        'start_y': start_y,
+    }
 
 def draw_pause_controls_menu(screen, selected_index):
     # Synchronisé avec controls.py : help, remap, back
@@ -6161,7 +6211,7 @@ def draw_filter_menu_choice(screen):
     # Titre
     title = _("filter_menu_title")
     title_surface = config.title_font.render(title, True, THEME_COLORS["text"])
-    title_rect = title_surface.get_rect(center=(config.screen_width // 2, 60))
+    title_rect = title_surface.get_rect(center=(config.screen_width // 2, max(36, title_surface.get_height() // 2 + 18)))
     screen.blit(title_surface, title_rect)
     
     # Options
@@ -6171,7 +6221,9 @@ def draw_filter_menu_choice(screen):
     # Calculer hauteur dynamique basée sur la taille de police
     sample_text = config.font.render("Sample", True, THEME_COLORS["text"])
     font_height = sample_text.get_height()
-    button_height = max(60, font_height + 30)
+    layout = _calc_centered_button_menu_layout(len(options), title_rect.bottom, font_height)
+    button_height = layout['button_height']
+    button_spacing = layout['button_spacing']
     
     # Calculer largeur maximale nécessaire pour le texte
     max_text_width = 0
@@ -6181,11 +6233,8 @@ def draw_filter_menu_choice(screen):
             max_text_width = text_surface.get_width()
     
     # Largeur du bouton basée sur le texte le plus long + marges
-    button_width = max(400, max_text_width + 80)
-    
-    # Calculer positions
-    menu_y = 150
-    button_spacing = 20
+    button_width = min(int(config.screen_width * 0.84), max(int(config.screen_width * 0.52), max_text_width + 60))
+    menu_y = layout['start_y']
     
     for i, option in enumerate(options):
         y = menu_y + i * (button_height + button_spacing)
@@ -6204,15 +6253,9 @@ def draw_filter_menu_choice(screen):
         pygame.draw.rect(screen, border_color, (x, y, button_width, button_height), 3, border_radius=12)
         
         # Texte avec gestion du dépassement
-        text_surface = config.font.render(option, True, THEME_COLORS["text"])
         available_width = button_width - 40  # Marge de 20px de chaque côté
-        
-        if text_surface.get_width() > available_width:
-            # Tronquer le texte avec "..."
-            truncated_text = option
-            while text_surface.get_width() > available_width and len(truncated_text) > 0:
-                truncated_text = truncated_text[:-1]
-                text_surface = config.font.render(truncated_text + "...", True, THEME_COLORS["text"])
+        display_option = truncate_text_end(option, config.font, available_width)
+        text_surface = config.font.render(display_option, True, THEME_COLORS["text"])
         
         text_rect = text_surface.get_rect(center=(config.screen_width // 2, y + button_height // 2))
         screen.blit(text_surface, text_rect)
@@ -6223,7 +6266,7 @@ def draw_global_sort_menu(screen):
 
     title = _("web_sort") if _ else "Trier"
     title_surface = config.title_font.render(title, True, THEME_COLORS["text"])
-    title_rect = title_surface.get_rect(center=(config.screen_width // 2, 60))
+    title_rect = title_surface.get_rect(center=(config.screen_width // 2, max(36, title_surface.get_height() // 2 + 18)))
     screen.blit(title_surface, title_rect)
 
     options = [
@@ -6236,14 +6279,15 @@ def draw_global_sort_menu(screen):
 
     sample_text = config.font.render("Sample", True, THEME_COLORS["text"])
     font_height = sample_text.get_height()
-    button_height = max(60, font_height + 30)
+    layout = _calc_centered_button_menu_layout(len(options), title_rect.bottom, font_height)
+    button_height = layout['button_height']
+    button_spacing = layout['button_spacing']
     max_text_width = 0
     for option in options:
         text_surface = config.font.render(option, True, THEME_COLORS["text"])
         max_text_width = max(max_text_width, text_surface.get_width())
-    button_width = max(460, max_text_width + 80)
-    menu_y = 150
-    button_spacing = 20
+    button_width = min(int(config.screen_width * 0.86), max(int(config.screen_width * 0.56), max_text_width + 60))
+    menu_y = layout['start_y']
 
     for i, option in enumerate(options):
         y = menu_y + i * (button_height + button_spacing)
@@ -6256,7 +6300,8 @@ def draw_global_sort_menu(screen):
             border_color = THEME_COLORS["border"]
         pygame.draw.rect(screen, color, (x, y, button_width, button_height), border_radius=12)
         pygame.draw.rect(screen, border_color, (x, y, button_width, button_height), 3, border_radius=12)
-        text_surface = config.font.render(option, True, THEME_COLORS["text"])
+        display_option = truncate_text_end(option, config.font, button_width - 40)
+        text_surface = config.font.render(display_option, True, THEME_COLORS["text"])
         text_rect = text_surface.get_rect(center=(config.screen_width // 2, y + button_height // 2))
         screen.blit(text_surface, text_rect)
 
@@ -6332,14 +6377,20 @@ def draw_filter_advanced(screen):
     if config.selected_filter_option >= total_items:
         config.selected_filter_option = total_items - 1
     
-    # Calculer d'abord la hauteur totale nécessaire
     # Adapter la hauteur en fonction de la taille de police
     sample_text = config.font.render("Sample", True, THEME_COLORS["text"])
     font_height = sample_text.get_height()
     line_height = max(50, font_height + 30)
     item_height = max(45, font_height + 20)
     item_spacing_y = 10
-    items_per_row = 3
+
+    max_region_width = 0
+    for _region_kind, _region_name, region_text, _region_color in regions_list:
+        text_surface = config.font.render(region_text, True, THEME_COLORS["text"])
+        max_region_width = max(max_region_width, text_surface.get_width() + 30)
+    item_spacing_x = 20
+    available_grid_width = max(180, config.screen_width - 40)
+    items_per_row = min(3, max(1, (available_grid_width + item_spacing_x) // max(1, max_region_width + item_spacing_x)))
     
     # Titre
     title_height = 60
@@ -6362,33 +6413,79 @@ def draw_filter_advanced(screen):
     other_options_height = num_other_options * (item_height + 10)
     
     # Hauteur des boutons
-    # Adapter en fonction de la taille de police
     sample_text = config.font.render("Sample", True, THEME_COLORS["text"])
     font_height = sample_text.get_height()
     button_height = max(50, font_height + 20)
     buttons_top_margin = 30
-    
-    # Hauteur totale du contenu
-    total_content_height = (title_height + header_height + grid_height + separator_height + 
-                           header2_height + other_options_height + buttons_top_margin + button_height)
-    
-    # Calculer position de départ pour centrer verticalement
-    control_bar_estimated_height = 80
-    available_height = config.screen_height - control_bar_estimated_height
-    start_y = (available_height - total_content_height) // 2
-    if start_y < 20:
-        start_y = 20  # Marge minimale du haut
-    
-    current_y = start_y
-    
+
     # Titre
     title = _("filter_advanced_title")
     title_surface = config.title_font.render(title, True, THEME_COLORS["text"])
-    title_rect = title_surface.get_rect(center=(config.screen_width // 2, current_y + 20))
+    title_rect = title_surface.get_rect(center=(config.screen_width // 2, max(38, title_surface.get_height() // 2 + 18)))
     screen.blit(title_surface, title_rect)
-    current_y += title_height
+
+    # Zone scrollable sous le titre et au-dessus du footer
+    footer_reserved = 82
+    viewport_top = title_rect.bottom + 20
+    viewport_bottom = max(viewport_top + 40, config.screen_height - footer_reserved)
+    viewport_height = max(40, viewport_bottom - viewport_top)
+
+    # Hauteur totale du contenu scrollable
+    active_info_height = config.small_font.get_height() + 10 if config.game_filter_obj.is_active() else 0
+    grid_bottom_spacing = 10
+    total_content_height = (
+        header_height +
+        grid_height + grid_bottom_spacing +
+        separator_height +
+        header2_height +
+        other_options_height +
+        buttons_top_margin +
+        button_height +
+        active_info_height
+    )
+
+    # Calculer quelle zone doit rester visible selon l'élément sélectionné.
+    selected_top = 0
+    selected_bottom = item_height
+    if config.selected_filter_option < len(regions_list):
+        selected_row = config.selected_filter_option // items_per_row
+        selected_top = header_height + selected_row * (item_height + item_spacing_y)
+        selected_bottom = selected_top + item_height
+    elif config.selected_filter_option < len(regions_list) + num_other_options:
+        option_idx = config.selected_filter_option - len(regions_list)
+        options_start_y = header_height + grid_height + grid_bottom_spacing + separator_height + header2_height
+        selected_top = options_start_y + option_idx * (item_height + 10)
+        selected_bottom = selected_top + item_height
+    else:
+        button_idx = config.selected_filter_option - (len(regions_list) + num_other_options)
+        buttons_y = header_height + grid_height + grid_bottom_spacing + separator_height + header2_height + other_options_height + buttons_top_margin
+        selected_top = buttons_y
+        selected_bottom = buttons_y + button_height
+        if 0 <= button_idx < len(buttons):
+            selected_top = buttons_y
+            selected_bottom = buttons_y + button_height
+
+    max_scroll = max(0, total_content_height - viewport_height)
+    scroll_offset = max(0, min(getattr(config, 'filter_advanced_scroll_offset', 0), max_scroll))
+    scroll_padding = 12
+
+    if max_scroll == 0:
+        scroll_offset = 0
+    else:
+        if selected_top - scroll_offset < scroll_padding:
+            scroll_offset = max(0, selected_top - scroll_padding)
+        elif selected_bottom - scroll_offset > viewport_height - scroll_padding:
+            scroll_offset = min(max_scroll, selected_bottom - (viewport_height - scroll_padding))
+
+    config.filter_advanced_scroll_offset = scroll_offset
+
+    content_start_y = viewport_top if total_content_height > viewport_height else viewport_top + (viewport_height - total_content_height) // 2
+    current_y = content_start_y - scroll_offset
     
     region_index_start = 0  # Les régions commencent à l'index 0
+
+    previous_clip = screen.get_clip()
+    screen.set_clip(pygame.Rect(0, viewport_top, config.screen_width, viewport_height))
     
     for option in options:
         option_type = option[0]
@@ -6406,20 +6503,14 @@ def draw_filter_advanced(screen):
         elif option_type == 'region_grid':
             # Afficher les régions en grille 3 par ligne
             regions_data = option[1]
-            item_spacing_x = 20
-            
-            # Calculer la largeur maximale nécessaire pour les boutons de régions
-            max_region_width = 0
-            for region_data in regions_data:
-                text = region_data[2]
-                text_surface = config.font.render(text, True, THEME_COLORS["text"])
-                text_width = text_surface.get_width() + 30  # Padding de 30px
-                if text_width > max_region_width:
-                    max_region_width = text_width
-            
-            # Largeur minimale de 200px
-            item_width = max(max_region_width, 200)
-            
+
+            items_per_row = min(3, max(1, (available_grid_width + item_spacing_x) // max(1, max_region_width + item_spacing_x)))
+            item_width = (available_grid_width - (items_per_row - 1) * item_spacing_x) // items_per_row
+            item_width = max(140, item_width)
+
+            # Recalculer le nombre de lignes selon le layout réellement affiché
+            num_rows = (len(regions_data) + items_per_row - 1) // items_per_row
+
             # Calculer la largeur totale de la grille
             total_grid_width = items_per_row * item_width + (items_per_row - 1) * item_spacing_x
             grid_start_x = (config.screen_width - total_grid_width) // 2
@@ -6447,7 +6538,7 @@ def draw_filter_advanced(screen):
                 pygame.draw.rect(screen, border_color, (x, y, item_width, item_height), 2, border_radius=8)
                 
                 # Texte centré
-                text = region_data[2]
+                text = truncate_text_end(region_data[2], config.font, item_width - 20)
                 text_color = region_data[3]
                 
                 text_surface = config.font.render(text, True, text_color)
@@ -6460,7 +6551,9 @@ def draw_filter_advanced(screen):
         elif option_type in ['toggle', 'button_inline']:
             # Option sélectionnable - largeur adaptée au texte
             text = option[2]
-            text_surface = config.font.render(text, True, THEME_COLORS["text"])
+            max_text_width = config.screen_width - 80
+            display_text = truncate_text_end(text, config.font, max_text_width)
+            text_surface = config.font.render(display_text, True, THEME_COLORS["text"])
             text_width = text_surface.get_width()
             
             # Largeur avec padding
@@ -6500,9 +6593,15 @@ def draw_filter_advanced(screen):
     for button_id, button_text in buttons:
         text_surface = config.font.render(button_text, True, THEME_COLORS["text"])
         button_widths.append(text_surface.get_width() + 40)  # Padding de 40px
-    
-    # Largeur totale des boutons
+
+    max_buttons_width = config.screen_width - 40
     total_buttons_width = sum(button_widths) + button_spacing * (len(buttons) - 1)
+    if total_buttons_width > max_buttons_width:
+        button_spacing = 10
+        shared_button_width = (max_buttons_width - button_spacing * (len(buttons) - 1)) // len(buttons)
+        button_widths = [max(110, shared_button_width) for _ in buttons]
+        total_buttons_width = sum(button_widths) + button_spacing * (len(buttons) - 1)
+
     button_start_x = (config.screen_width - total_buttons_width) // 2
     
     # Calculer l'index de début des boutons (après toutes les régions et autres options)
@@ -6526,7 +6625,8 @@ def draw_filter_advanced(screen):
         pygame.draw.rect(screen, border_color, (current_button_x, button_y, button_width, button_height), 2, border_radius=8)
         
         # Texte centré
-        text_surface = config.font.render(button_text, True, THEME_COLORS["text"])
+        display_text = truncate_text_end(button_text, config.font, button_width - 20)
+        text_surface = config.font.render(display_text, True, THEME_COLORS["text"])
         text_rect = text_surface.get_rect(center=(current_button_x + button_width // 2, button_y + button_height // 2))
         screen.blit(text_surface, text_rect)
         
@@ -6538,6 +6638,19 @@ def draw_filter_advanced(screen):
         info_surface = config.small_font.render(info_text, True, THEME_COLORS["green"])
         info_rect = info_surface.get_rect(center=(config.screen_width // 2, button_y - 20))
         screen.blit(info_surface, info_rect)
+
+    screen.set_clip(previous_clip)
+
+    if max_scroll > 0:
+        indicator_color = THEME_COLORS["title_text"]
+        if scroll_offset > 0:
+            up_surface = config.small_font.render("^", True, indicator_color)
+            up_rect = up_surface.get_rect(center=(config.screen_width - 18, viewport_top + 10))
+            screen.blit(up_surface, up_rect)
+        if scroll_offset < max_scroll:
+            down_surface = config.small_font.render("v", True, indicator_color)
+            down_rect = down_surface.get_rect(center=(config.screen_width - 18, viewport_bottom - 10))
+            screen.blit(down_surface, down_rect)
 
 
 def draw_filter_priority_config(screen):
